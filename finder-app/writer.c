@@ -1,43 +1,65 @@
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/klog.h>
-#include <sys/syscall.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <string.h>
-#include <errno.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <syslog.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <libgen.h>
+#include <unistd.h>
 
-int main(int argc, char *argv[]) {
-	int fd;
-	int n;
+#define EXIT_FAILURE 1
 
-	openlog(argv[0], LOG_NDELAY, LOG_USER);
+int main(int argc, char* argv[]) {
+    char path[100];
+    char* writestr;
+    char* directory_name;
+    FILE* fp;
+    struct stat st;
+    int status;
 
-	if (argc != 3) {
-		syslog(LOG_ERR, "Wrong number of arguments. Please try again.\n");
-		closelog();
-		return 1;
-	}
+    openlog(NULL, LOG_PERROR, LOG_USER);
 
-	fd = open(argv[1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
-	if (fd == -1) {
-		syslog(LOG_ERR, "Could not open the given file %s\n", argv[1]);
-		syslog(LOG_ERR, "Got %s\n", strerror(errno));
-		closelog();
-		return 1;
-	}
+    // check command line arguments
+    if (argc != 3) {
+        syslog(LOG_ERR, "ERROR: invalid number of arguments\n");
+        exit(EXIT_FAILURE);
+    }
 
-	syslog(LOG_DEBUG, "Writing %s to %s", argv[2], argv[1]);
+    // get directory path without filename appended
+    strcpy(path, argv[1]);
+    directory_name = dirname(argv[1]);
 
-	n = write(fd, argv[2], strlen(argv[2]));
-	if (n == -1) {
-		syslog(LOG_ERR, "Could not write %s to file %s\n", argv[2], argv[1]);
-		closelog();
-		return 1;
-	}
+    // verify that directory path exists
+    if (stat(directory_name, &st) != 0) {
+        syslog(LOG_ERR, "ERROR: path does not exist\n");
+        exit(EXIT_FAILURE);
+    }
 
-	close(fd);
+    // open the file
+    fp = fopen(path, "w");
+    if (fp == NULL) {
+        syslog(LOG_ERR, "ERROR: file could not be opened\n");
+        exit(EXIT_FAILURE);
+    }
 
-	return 0;
+    // write to the file
+    writestr = argv[2];
+    status = fwrite(writestr, sizeof(char), strlen(writestr), fp);
+    if (status == 0) {
+        syslog(LOG_ERR, "ERROR: file could not be written to\n");
+	exit(EXIT_FAILURE);
+    }
+
+    // debug info to syslog
+    syslog(LOG_DEBUG, "Writing %s to %s\n", writestr, path);
+
+    // close the file
+    status = fclose(fp);
+    if (status != 0) {
+        syslog(LOG_ERR, "ERROR: file could not be closed\n");
+	exit(EXIT_FAILURE);
+    }
+
+    closelog();
+    return 0;
+
 }
